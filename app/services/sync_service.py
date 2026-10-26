@@ -7,7 +7,7 @@ import tempfile
 import threading
 from pathlib import Path
 from openai import OpenAI
-from app.core.config import settings
+from app.core import config
 from app.services.drive_service import DriveService
 
 MANIFEST = Path(__file__).resolve().parents[2] / "data" / "manifest.json"
@@ -16,13 +16,25 @@ SUPPORTED = {"application/pdf", "text/plain", "application/vnd.google-apps.docum
 
 class SyncService:
     def __init__(self, client=None, drive=None):
-        self.client = client or OpenAI(api_key=settings.openai_api_key)
+        self.client = client or OpenAI(api_key=config.settings.openai_api_key)
         self.drive = drive or DriveService()
 
     @staticmethod
     def load_manifest() -> dict:
-        if not MANIFEST.exists(): return {"vector_store_id": "", "documents": {}}
-        return json.loads(MANIFEST.read_text(encoding="utf-8"))
+        """Lee data/manifest.json (local). Si no existe, usa DOCUMENTS_MANIFEST (Vercel)."""
+        if MANIFEST.exists():
+            return json.loads(MANIFEST.read_text(encoding="utf-8"))
+        raw = config.settings.documents_manifest
+        if raw:
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict) and isinstance(data.get("documents", {}), dict):
+                    data.setdefault("vector_store_id", "")
+                    data.setdefault("documents", {})
+                    return data
+            except json.JSONDecodeError:
+                pass
+        return {"vector_store_id": "", "documents": {}}
 
     @staticmethod
     def save_manifest(data: dict):
@@ -32,7 +44,7 @@ class SyncService:
         os.replace(tmp, MANIFEST)
 
     def get_store(self, manifest):
-        vector_id = settings.vector_store_id or manifest.get("vector_store_id")
+        vector_id = config.settings.vector_store_id or manifest.get("vector_store_id")
         if not vector_id:
             vector_id = self.client.vector_stores.create(name="Archivo TIC IA - Documentos").id
         manifest["vector_store_id"] = vector_id
@@ -46,7 +58,7 @@ class SyncService:
             docs = manifest.setdefault("documents", {})
             store = self.get_store(manifest)
             self.save_manifest(manifest)
-            source = self.drive.list_files(settings.drive_folder_id)
+            source = self.drive.list_files(config.settings.drive_folder_id)
             eligible = {x["id"]: x for x in source if x["mimeType"] in SUPPORTED}
             stats = {"added": 0, "updated": 0, "removed": 0, "unchanged": 0, "errors": []}
             for drive_id, item in eligible.items():

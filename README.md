@@ -1,5 +1,14 @@
 # 2.3 Agente documental con Google Drive — Archivo TIC IA
 
+| | |
+|---|---|
+| **Alumno** | Fernando Rosales Tello |
+| **Materia** | Inteligencia artificial aplicada a las TIC |
+| **Docente** | M.C. Víctor Manuel Pinedo Fernández |
+| **Institución** | Tecnológico Nacional de México campus Pachuca |
+| **Repositorio** | https://github.com/FerTello29/agente-documental-tic |
+| **Producción (Vercel)** | https://agente-documental-tic-theta.vercel.app |
+
 Proyecto académico de **Inteligencia artificial aplicada a las TIC**, Tecnológico Nacional de México, campus Pachuca. Continuación de **2.2 Agente investigador**: se reemplaza la búsqueda pública Web Search por recuperación documental de **Google Drive**, **OpenAI Vector Stores** y **File Search (RAG)**.
 
 ## Propósito pedagógico
@@ -14,7 +23,8 @@ El alumno comprenderá que una organización necesita consultar documentos propi
 - `app/services/drive_service.py`: OAuth Desktop, listado limitado a una carpeta y descarga/exportación de archivos.
 - `app/services/sync_service.py`: Vector Store, manifiesto de archivos, altas, cambios y bajas.
 - `app/services/agent_service.py`: Responses API + File Search y fuentes verificadas por anotaciones de archivo.
-- `index.html` y `assets/`: interfaz Bootstrap 5 y clases JavaScript.
+- `index.html` y `assets/`: interfaz Bootstrap 5 y clases JavaScript (`ApiClient`, `Pipeline`, `DocumentLibrary`, `App`): flujo RAG animado, comparativa A/B sin y con File Search, fuentes verificables e historial de la sesión.
+- `api/index.py` y `vercel.json`: función serverless que expone la misma app FastAPI en Vercel.
 - `data/manifest.json`: estado local del índice (no se publica).
 
 ## 1. Requisitos
@@ -86,13 +96,60 @@ Las pruebas son locales y no requieren claves reales ni consumen OpenAI.
 
 ## 8. Git/GitHub y reto autónomo Vercel
 
+### Historial de versiones
+
+`main` contiene la estructura inicial del docente; el desarrollo se hizo en `feature/agente-documental` con commits por hito (`feat(config)`, `feat(api)`, `feat(vercel)`, `test`, `feat(ui)`, `docs`) y después se integró en `main`. `.env`, `credentials.json`, `token.json` y `data/manifest.json` nunca se versionan.
+
+### Por qué el prototipo local no puede publicarse tal cual
+
+| Elemento local | Problema en Vercel | Solución aplicada |
+|---|---|---|
+| `InstalledAppFlow` (OAuth Desktop) | Abre un navegador **en el servidor**; en serverless no hay usuario ni pantalla. | La sincronización se ejecuta solo en localhost. `/api/sync` responde 403 en Vercel (`VERCEL=1`). |
+| `token.json` | El sistema de archivos de la función es efímero y de solo lectura; el token se perdería. | No se despliega (`.vercelignore`). |
+| `data/manifest.json` | Igual: no persiste entre invocaciones. | Su contenido se publica como variable de entorno `DOCUMENTS_MANIFEST`; `SyncService.load_manifest()` la usa cuando no existe el archivo. |
+| `local_only` | Comprueba loopback; detrás del proxy de Vercel no es una autenticación. | Bloqueo explícito por entorno + `protect_ask` en `/api/ask`. |
+| `/api/ask` público | Cualquiera podría consumir la clave de OpenAI. | Límite por IP (`ASK_RATE_LIMIT`), código de acceso opcional (`APP_ACCESS_KEY` → cabecera `X-Access-Key`) y límite de presupuesto en OpenAI Platform. |
+
+### Arquitectura desplegada
+
+- **CDN de Vercel:** sirve `index.html` y `assets/`.
+- **Función Python (`api/index.py`):** recibe `/api/*` (reescritura en `vercel.json`) y ejecuta FastAPI. `OPENAI_API_KEY` solo existe en esta función.
+- **OpenAI Vector Store:** es el índice persistente, compartido entre localhost y Vercel mediante `VECTOR_STORE_ID`.
+
+### Variables de entorno en Vercel (Settings → Environment Variables, Production)
+
+| Variable | Valor |
+|---|---|
+| `OPENAI_API_KEY` | Clave del proyecto (sensible). |
+| `OPENAI_MODEL` | `gpt-4.1-mini` |
+| `VECTOR_STORE_ID` | El `vector_store_id` de `data/manifest.json` tras sincronizar en local. |
+| `DOCUMENTS_MANIFEST` | Contenido completo de `data/manifest.json` (nombres, enlaces de Drive e IDs de archivo). |
+| `APP_ACCESS_KEY` | Opcional: código para restringir quién consulta. |
+| `ASK_RATE_LIMIT` | Opcional: consultas por minuto por IP (12 por defecto). |
+
+`GOOGLE_DRIVE_FOLDER_ID`, `credentials.json` y `token.json` **no** se configuran en Vercel. Flujo de actualización: modificar Drive → `POST /api/sync` en localhost → actualizar `DOCUMENTS_MANIFEST` en Vercel → redeploy.
+
+### Despliegue
+
 ```powershell
-git init
-git add .
-git commit -m "chore: estructura inicial del agente documental"
+npx vercel link --project agente-documental-tic
+npx vercel env add OPENAI_API_KEY production
+npx vercel deploy --prod
 ```
 
-Publica solamente el código; confirma `.gitignore`. **NO publiques este proyecto en Vercel sin adaptaciones de seguridad.** OAuth Desktop, `token.json`, `manifest.json`, la ausencia de sesiones de usuario y el endpoint de preguntas no son adecuados para Internet abierto. Para producción, investiga OAuth tipo **Web application**, redirecciones autorizadas, sesiones, almacenamiento persistente de tokens, control de acceso documental por usuario, protección del endpoint `/api/ask`, persistencia compartida del índice y cuotas. Los archivos locales de una función serverless pueden ser efímeros. Las variables de entorno deben configurarse en la plataforma, nunca en el frontend.
+Comprobaciones en producción: `GET /api/health` devuelve `environment: "vercel"` y `sync_enabled: false`; `POST /api/sync` responde 403; ninguna respuesta ni archivo de `assets/js` contiene la clave (revisado en DevTools → Network/Sources).
+
+### Investigación: OAuth web para sincronizar desde Vercel (no implementado)
+
+Para sincronizar desde la nube sin depender del equipo local se requiere:
+
+1. Un cliente OAuth tipo **Web application** en Google Cloud, con URI de redirección autorizada `https://<dominio>/api/oauth/callback`.
+2. Flujo de *authorization code* con `google_auth_oauthlib.flow.Flow`, parámetros `state` (anti-CSRF) y `access_type=offline` para obtener un *refresh token*.
+3. Sesión de usuario (cookie firmada `HttpOnly; Secure; SameSite=Lax`) y lista de cuentas autorizadas para administrar la sincronización.
+4. Almacenamiento persistente y cifrado del refresh token y del manifiesto (p. ej. Vercel Marketplace: Upstash Redis o Postgres), nunca el sistema de archivos de la función.
+5. Ejecutar la sincronización como tarea (Vercel Cron o una cola), porque indexar varios archivos puede superar la duración máxima de una función.
+
+Se dejó fuera del alcance porque el alcance `drive.readonly` en una app pública exige verificación de Google y porque, para el laboratorio, el índice de solo lectura cumple el objetivo sin exponer Drive.
 
 ## 9. Costos y privacidad
 
