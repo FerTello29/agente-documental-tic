@@ -3,7 +3,6 @@ Nota: eliminar archivos de un vector store puede tener consistencia eventual.
 """
 import json
 import os
-import tempfile
 import threading
 from pathlib import Path
 from openai import OpenAI
@@ -50,6 +49,21 @@ class SyncService:
         manifest["vector_store_id"] = vector_id
         return vector_id
 
+    @staticmethod
+    def upload_name(filename: str) -> str:
+        """Nombre válido para OpenAI: conserva el título y garantiza extensión .pdf o .txt."""
+        name = "".join(c for c in filename if c not in '\/:*?"<>|').strip() or "documento"
+        return name if name.lower().endswith((".pdf", ".txt")) else name + ".txt"
+
+    def discard(self, store: str, file_id: str):
+        """Quita el archivo del Vector Store y también lo borra del almacenamiento de OpenAI,
+        para no acumular archivos huérfanos que generan costo."""
+        self.client.vector_stores.files.delete(vector_store_id=store, file_id=file_id)
+        try:
+            self.client.files.delete(file_id)
+        except Exception:
+            pass  # ya eliminado o sin permisos: el índice ya no lo usa
+
     def sync(self):
         if not _LOCK.acquire(blocking=False):
             raise RuntimeError("Ya existe una sincronización en curso")
@@ -67,21 +81,16 @@ class SyncService:
                     stats["unchanged"] += 1
                     continue
                 try:
-                    raw, filename, _ = self.drive.get_bytes(item)
+                    raw, filename, target_mime = self.drive.get_bytes(item)
                     if not raw: raise ValueError("El archivo está vacío")
-                    suffix = ".pdf" if filename.lower().endswith(".pdf") else ".txt"
-                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp:
-                        temp.write(raw)
-                        path = Path(temp.name)
-                    try:
-                        with path.open("rb") as fh:
-                            upload = self.client.vector_stores.files.upload_and_poll(vector_store_id=store, file=fh)
-                    finally:
-                        path.unlink(missing_ok=True)
+                    # Se sube con el nombre real del documento (no un nombre temporal) para que
+                    # el modelo y las citas se refieran al archivo que el usuario reconoce.
+                    upload = self.client.vector_stores.files.upload_and_poll(
+                        vector_store_id=store, file=(self.upload_name(filename), raw, target_mime))
                     if upload.status != "completed": raise RuntimeError("Indexación no completada: " + upload.status)
                     # Solo se elimina la versión antigua después de indexar exitosamente la nueva.
                     if previous:
-                        self.client.vector_stores.files.delete(vector_store_id=store, file_id=previous["openai_file_id"])
+                        self.discard(store, previous["openai_file_id"])
                     docs[drive_id] = {
                         "name": item["name"], "modified_time": item.get("modifiedTime"),
                         "mime_type": item["mimeType"], "openai_file_id": upload.id,
@@ -94,7 +103,7 @@ class SyncService:
                     stats["errors"].append({"file": item["name"], "error": str(exc)})
             for drive_id in set(docs) - set(eligible):
                 try:
-                    self.client.vector_stores.files.delete(vector_store_id=store, file_id=docs[drive_id]["openai_file_id"])
+                    self.discard(store, docs[drive_id]["openai_file_id"])
                     del docs[drive_id]
                     self.save_manifest(manifest)
                     stats["removed"] += 1

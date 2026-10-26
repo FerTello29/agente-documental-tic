@@ -67,3 +67,55 @@ def test_ask_rate_limit(settings):
     settings(ask_rate_limit=2, openai_api_key="")
     codes = [client.post("/api/ask", json={"question": "¿Qué es RDS?"}).status_code for _ in range(3)]
     assert codes == [400, 400, 429]  # 400: falta clave (no llama a OpenAI); 429: límite alcanzado
+
+
+class _Obj:
+    def __init__(self, **kw): self.__dict__.update(kw)
+
+
+class FakeOpenAI:
+    """Simula vector_stores y files sin llamar a la API real."""
+    def __init__(self):
+        self.uploaded, self.detached, self.deleted = [], [], []
+        outer = self
+
+        class Files:
+            def upload_and_poll(self, vector_store_id, file):
+                outer.uploaded.append(file)
+                return _Obj(id=f"file_{len(outer.uploaded)}", status="completed")
+            def delete(self, vector_store_id, file_id):
+                outer.detached.append(file_id)
+
+        class Stores:
+            files = Files()
+            def create(self, name): return _Obj(id="vs_test")
+
+        class RawFiles:
+            def delete(self, file_id): outer.deleted.append(file_id)
+
+        self.vector_stores = Stores()
+        self.files = RawFiles()
+
+
+class FakeDrive:
+    def __init__(self, items): self.items = items
+    def list_files(self, folder_id): return self.items
+    def get_bytes(self, item):
+        if item["mimeType"] == "application/vnd.google-apps.document":
+            return b"texto", item["name"] + ".txt", "text/plain"
+        return b"%PDF", item["name"], item["mimeType"]
+
+
+def test_sync_uses_real_names_and_cleans_old_files(settings):
+    settings(drive_folder_id="folder", vector_store_id="")
+    doc = {"id": "d1", "name": "Guía de seguridad", "mimeType": "application/vnd.google-apps.document", "modifiedTime": "1"}
+    pdf = {"id": "d2", "name": "Practica 5 - VPC Peering.pdf", "mimeType": "application/pdf", "modifiedTime": "1"}
+    client = FakeOpenAI()
+    r = SyncService(client=client, drive=FakeDrive([doc, pdf])).sync()
+    assert r["stats"]["added"] == 2
+    assert [f[0] for f in client.uploaded] == ["Guía de seguridad.txt", "Practica 5 - VPC Peering.pdf"]
+
+    doc2 = {**doc, "modifiedTime": "2"}
+    r = SyncService(client=client, drive=FakeDrive([doc2])).sync()
+    assert (r["stats"]["updated"], r["stats"]["removed"]) == (1, 1)
+    assert set(client.deleted) == {"file_1", "file_2"}  # versión vieja y archivo eliminado
