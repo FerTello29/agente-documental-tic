@@ -47,7 +47,9 @@ export function renderMarkdown(source) {
         items.push(`<li>${inline(lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, ''))}</li>`);
         i++;
       }
-      out.push(ordered ? `<ol>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`);
+      // Respeta el número real (p. ej. "3.") para listas cortadas por párrafos intermedios.
+      const start = ordered ? parseInt(line.trim(), 10) || 1 : 1;
+      out.push(ordered ? `<ol${start > 1 ? ` start="${start}"` : ''}>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`);
       continue;
     }
     if (!line.trim()) { i++; continue; }
