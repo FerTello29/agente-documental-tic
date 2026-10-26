@@ -1,6 +1,6 @@
 """Agente documental con trazabilidad de anotaciones file_citation."""
 from openai import OpenAI
-from app.core.config import settings
+from app.core import config
 from app.services.sync_service import SyncService
 
 INSTRUCTIONS = ("Eres Archivo TIC IA, asistente documental académico. "
@@ -11,14 +11,14 @@ INSTRUCTIONS = ("Eres Archivo TIC IA, asistente documental académico. "
 
 class AgentService:
     def __init__(self, client=None):
-        self.client = client or OpenAI(api_key=settings.openai_api_key)
+        self.client = client or OpenAI(api_key=config.settings.openai_api_key)
 
     def ask(self, question: str, use_search=True):
         manifest = SyncService.load_manifest()
-        store = settings.vector_store_id or manifest.get("vector_store_id")
+        store = config.settings.vector_store_id or manifest.get("vector_store_id")
         if use_search and not store:
             raise ValueError("Primero sincroniza los documentos para crear el Vector Store")
-        args = {"model": settings.openai_model, "instructions": INSTRUCTIONS,
+        args = {"model": config.settings.openai_model, "instructions": INSTRUCTIONS,
                 "input": question, "store": False}
         if use_search:
             args["tools"] = [{"type": "file_search", "vector_store_ids": [store], "max_num_results": 8}]
