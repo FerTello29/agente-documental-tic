@@ -1,1 +1,171 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Archivo TIC IA | Agente documental</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link href="/assets/css/styles.css" rel="stylesheet"></head><body><header class="hero py-4"><div class="container d-flex flex-wrap justify-content-between align-items-center gap-3"><div><div class="eyebrow">PRÁCTICA 2.3 · INTELIGENCIA ARTIFICIAL APLICADA A LAS TIC</div><h1 class="h2 mb-1">Archivo TIC <span>IA</span></h1><p class="m-0 text-white-50">Agente documental con Google Drive y búsqueda semántica RAG</p></div><span class="badge rounded-pill border border-light text-light" id="health">Comprobando servidor…</span></div></header><main class="container py-4"><div class="row g-4"><div class="col-lg-4"><section class="card shell h-100"><div class="card-body"><div class="d-flex align-items-center justify-content-between"><h2 class="h5 mb-0">Base documental</h2><span class="badge text-bg-info" id="doc-count">0</span></div><p class="small text-secondary mt-2">Archivos indexados desde una carpeta autorizada de Google Drive.</p><div id="documents" class="doc-list" aria-live="polite">Sin documentos indexados.</div><button type="button" id="sync" class="btn btn-outline-primary w-100 mt-3">Sincronizar desde Drive</button><p class="small text-secondary mt-2 mb-0">La primera sincronización abrirá OAuth en el equipo donde corre Python. Uso exclusivamente local.</p></div></section></div><div class="col-lg-8"><section class="card shell"><div class="card-body"><h2 class="h5">Consultar al agente</h2><label class="form-label mt-2" for="question">Pregunta sobre los documentos</label><textarea class="form-control" id="question" rows="3" maxlength="3000" placeholder="¿Qué documentos explican Amazon RDS y sus conexiones?" required></textarea><div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mt-3"><div class="form-check form-switch"><input id="use-search" class="form-check-input" type="checkbox" checked><label class="form-check-label" for="use-search">Activar File Search (RAG)</label></div><button class="btn btn-primary" type="button" id="ask">Consultar agente</button></div><div id="message" role="status" class="small mt-3" aria-live="polite"></div></div></section><section class="card shell mt-4"><div class="card-body"><h2 class="h5">Respuesta documental</h2><div id="answer" class="answer mt-3" aria-live="polite">Escribe una pregunta para comenzar.</div><h3 class="h6 mt-4">Fuentes verificables</h3><ul id="sources" class="list-group list-group-flush"></ul></div></section></div></div></main><footer class="container pb-4 small text-center text-secondary">Tecnológico Nacional de México · Campus Pachuca · Ingeniería en Sistemas Computacionales · Práctica 2.3</footer><script type="module" src="/assets/js/app.js"></script></body></html>
+<!doctype html>
+<html lang="es" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#060912">
+  <meta name="description" content="Archivo TIC IA: agente documental con Google Drive, OpenAI File Search y RAG.">
+  <title>Archivo TIC IA | Agente documental</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2322d3ee'/%3E%3Cstop offset='1' stop-color='%238b5cf6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%23060912'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='none' stroke='url(%23g)' stroke-width='2.2' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='18' r='3' fill='url(%23g)'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="/assets/css/styles.css" rel="stylesheet">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <!-- Barra superior -->
+  <nav class="topbar">
+    <div class="container-xxl d-flex align-items-center gap-3">
+      <a class="brand" href="/" aria-label="Archivo TIC IA, inicio">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><path d="M9 7h10l5 5v13H9z"/><path d="M19 7v5h5"/><circle cx="16.5" cy="18.5" r="3.2"/><path d="m19 21 2.6 2.6"/></svg>
+        </span>
+        <span class="brand-text">Archivo TIC <b>IA</b></span>
+      </a>
+      <div class="status-row ms-auto" id="status-row" aria-label="Estado de los servicios">
+        <span class="status-pill" data-key="server" title="Servidor"><i></i><span class="lbl">Servidor</span></span>
+        <span class="status-pill" data-key="openai" title="OpenAI"><i></i><span class="lbl">OpenAI</span></span>
+        <span class="status-pill" data-key="vector_store" title="Vector Store"><i></i><span class="lbl">Vector Store</span></span>
+        <span class="env-pill" id="env-pill">…</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero container-xxl">
+    <div class="eyebrow"><span class="dot"></span>Práctica 2.3 · Agente documental con Google Drive</div>
+    <h1 class="hero-title">Pregunta a <span class="grad">tus documentos</span>,<br class="d-none d-md-block"> no a Internet.</h1>
+    <p class="hero-sub">Archivo TIC IA recupera pasajes de una carpeta autorizada de Google Drive indexada en OpenAI Vector Stores y responde con <strong>RAG</strong>, mostrando citas que puedes abrir y comprobar.</p>
+
+    <!-- Flujo RAG animado -->
+    <ol class="pipeline" id="pipeline" aria-label="Flujo del agente documental">
+      <li data-stage="drive"><span class="node"><i class="bi bi-google"></i></span><b>Google Drive</b><small>OAuth 2.0 · solo lectura</small></li>
+      <li data-stage="sync"><span class="node"><i class="bi bi-arrow-repeat"></i></span><b>Sincronización</b><small>PDF · TXT · Docs</small></li>
+      <li data-stage="store"><span class="node"><i class="bi bi-database"></i></span><b>Vector Store</b><small>índice semántico</small></li>
+      <li data-stage="search"><span class="node"><i class="bi bi-search"></i></span><b>File Search</b><small>recupera fragmentos</small></li>
+      <li data-stage="model"><span class="node"><i class="bi bi-stars"></i></span><b>Respuesta</b><small>con fuentes reales</small></li>
+    </ol>
+
+    <dl class="stats" id="stats">
+      <div><dt>Documentos indexados</dt><dd id="stat-docs">—</dd></div>
+      <div><dt>Modelo</dt><dd id="stat-model">—</dd></div>
+      <div><dt>Entorno</dt><dd id="stat-env">—</dd></div>
+      <div><dt>Consultas en la sesión</dt><dd id="stat-queries">0</dd></div>
+    </dl>
+  </header>
+
+  <main class="container-xxl pb-5">
+    <div class="row g-4">
+      <!-- Base documental -->
+      <aside class="col-lg-4">
+        <section class="glass library d-flex flex-column" aria-labelledby="lib-title">
+          <div class="panel-head">
+            <h2 id="lib-title"><i class="bi bi-folder2-open"></i> Base documental</h2>
+            <span class="count-badge" id="doc-count">0</span>
+          </div>
+          <p class="panel-sub">Archivos indexados desde la carpeta autorizada <em>2.3 Agente documental</em>.</p>
+          <div class="search-field">
+            <i class="bi bi-funnel"></i>
+            <input id="doc-filter" type="search" placeholder="Filtrar documentos…" aria-label="Filtrar documentos">
+          </div>
+          <div id="documents" class="doc-list" aria-live="polite"></div>
+
+          <div class="mt-auto pt-3">
+            <button type="button" id="sync" class="btn btn-sync w-100">
+              <i class="bi bi-arrow-repeat"></i><span>Sincronizar desde Drive</span>
+            </button>
+            <div id="sync-stats" class="sync-stats" aria-live="polite"></div>
+            <p class="panel-note" id="sync-note">La primera sincronización abre OAuth en el equipo donde corre Python.</p>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Consola del agente -->
+      <section class="col-lg-8 d-flex flex-column gap-4" aria-label="Consultar al agente">
+        <div class="glass composer">
+          <div class="panel-head">
+            <h2><i class="bi bi-chat-square-text"></i> Consultar al agente</h2>
+            <span class="kbd-hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+          </div>
+
+          <label class="visually-hidden" for="question">Pregunta sobre los documentos</label>
+          <div class="textarea-wrap">
+            <textarea id="question" rows="3" maxlength="3000" placeholder="¿Qué documentos explican Amazon RDS y cómo se conecta una instancia?"></textarea>
+            <span class="char-count" id="char-count">0 / 3000</span>
+          </div>
+
+          <div class="suggestions" id="suggestions" aria-label="Preguntas sugeridas">
+            <button type="button" class="chip" data-q="¿Qué archivos hablan de AWS RDS? Enumera cada uno con una línea de su contenido.">AWS RDS</button>
+            <button type="button" class="chip" data-q="Resume en 5 puntos qué es VPC Peering y cómo se configuró en la práctica.">Resumen de VPC Peering</button>
+            <button type="button" class="chip" data-q="Compara la práctica de Amazon RDS MySQL con la de VPC Peering: objetivo, servicios usados y pasos clave.">Comparar dos prácticas</button>
+            <button type="button" class="chip" data-q="Según la guía de seguridad, ¿cómo deben protegerse las credenciales y claves API?">Seguridad de credenciales</button>
+            <button type="button" class="chip" data-q="¿Qué normas del reglamento del laboratorio aplican al uso de equipos?">Reglamento del laboratorio</button>
+            <button type="button" class="chip chip-ghost" data-q="¿Cuál es el horario de la cafetería del campus?">Pregunta sin evidencia</button>
+          </div>
+
+          <div class="composer-foot">
+            <div class="mode-switch" role="radiogroup" aria-label="Modo de consulta">
+              <input type="radio" name="mode" id="mode-rag" value="rag" checked>
+              <label for="mode-rag"><i class="bi bi-database-check"></i> File Search (RAG)</label>
+              <input type="radio" name="mode" id="mode-plain" value="plain">
+              <label for="mode-plain"><i class="bi bi-cpu"></i> Sin File Search</label>
+              <input type="radio" name="mode" id="mode-compare" value="compare">
+              <label for="mode-compare"><i class="bi bi-layout-split"></i> Comparar A/B</label>
+              <span class="mode-glider" aria-hidden="true"></span>
+            </div>
+            <div class="access-field d-none" id="access-field">
+              <i class="bi bi-key"></i>
+              <input id="access-key" type="password" autocomplete="off" placeholder="Código de acceso" aria-label="Código de acceso">
+            </div>
+            <button class="btn btn-ask" type="button" id="ask">
+              <span class="label">Consultar</span><i class="bi bi-send-fill"></i>
+            </button>
+          </div>
+          <div id="message" role="status" class="message" aria-live="polite"></div>
+        </div>
+
+        <div id="results" class="results" aria-live="polite">
+          <div class="glass empty-state">
+            <div class="empty-orb" aria-hidden="true"><i class="bi bi-stars"></i></div>
+            <h3>Listo para consultar</h3>
+            <p>Elige una pregunta sugerida o escribe la tuya. Usa <b>Comparar A/B</b> para ver la misma pregunta sin y con File Search lado a lado.</p>
+          </div>
+        </div>
+
+        <section class="glass history d-none" id="history-panel" aria-labelledby="history-title">
+          <div class="panel-head">
+            <h2 id="history-title"><i class="bi bi-clock-history"></i> Consultas de esta sesión</h2>
+            <button type="button" class="btn-link-soft" id="clear-history">Limpiar</button>
+          </div>
+          <ol id="history" class="history-list"></ol>
+        </section>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container-xxl">
+      <div class="footer-grid">
+        <div>
+          <div class="brand-text small-brand">Archivo TIC <b>IA</b></div>
+          <p>Práctica 2.3 · Agente documental con Google Drive, Drive API, OAuth 2.0, RAG y OpenAI File Search.</p>
+        </div>
+        <ul class="credits">
+          <li><span>Alumno</span>Fernando Rosales Tello</li>
+          <li><span>Materia</span>Inteligencia artificial aplicada a las TIC</li>
+          <li><span>Docente</span>M.C. Víctor Manuel Pinedo Fernández</li>
+          <li><span>Institución</span>Tecnológico Nacional de México campus Pachuca</li>
+        </ul>
+      </div>
+      <p class="footer-fine"><i class="bi bi-shield-lock"></i> La clave de OpenAI y las credenciales de Google permanecen en el servidor; este navegador nunca las recibe.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>
